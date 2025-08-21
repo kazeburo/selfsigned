@@ -2,6 +2,9 @@ package selfsigned
 
 import (
 	"crypto/ecdsa"
+	"crypto/tls"
+	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -12,8 +15,7 @@ func TestTLSConfig_Default(t *testing.T) {
 	cfg, err := TLSConfig()
 	assert.NoError(t, err, "unexpected error")
 	assert.NotNil(t, cfg, "expected non-nil tls.Config")
-	assert.Greater(t, len(cfg.Certificates), 0, "expected at least one certificate in tls.Config")
-	assert.True(t, cfg.InsecureSkipVerify, "expected InsecureSkipVerify to be true")
+	assert.Equal(t, len(cfg.Certificates), 1, "expected exactly one certificate in tls.Config")
 }
 
 func TestTLSConfig_WithOptions(t *testing.T) {
@@ -29,4 +31,45 @@ func TestTLSConfig_WithOptions(t *testing.T) {
 	assert.NotNil(t, cfg.Certificates[0].PrivateKey, "expected private key to be non-nil")
 	_, ok := cfg.Certificates[0].PrivateKey.(*ecdsa.PrivateKey)
 	assert.True(t, ok, "expected private key to be of type *ecdsa.PrivateKey")
+}
+
+// httpsサーバを起動して、自己署名証明書が正しく機能するかを確認するテスト
+func TestTLSConfig_HTTPSServer(t *testing.T) {
+	commonName := "example.com"
+	cfg, err := TLSConfig(CommonName(commonName))
+	assert.NoError(t, err, "unexpected error")
+	assert.NotNil(t, cfg, "expected non-nil tls.Config")
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen error: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ok"))
+	})
+	server := &http.Server{
+		Handler:   mux,
+		TLSConfig: cfg,
+	}
+
+	go func() {
+		err := server.ServeTLS(ln, "", "")
+		assert.NoError(t, err, "unexpected error")
+	}()
+
+	// クライアントからHTTPSリクエストを送信
+	baseURL := "https://" + ln.Addr().String()
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Transport: transport,
+	}
+	resp, err := client.Get(baseURL + "/healthz")
+	assert.NoError(t, err, "unexpected error")
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected status OK")
+	err = resp.TLS.PeerCertificates[0].VerifyHostname("example.com")
+	assert.NoError(t, err, "unexpected error")
 }

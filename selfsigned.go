@@ -14,8 +14,9 @@ import (
 )
 
 type config struct {
-	commonName string
-	NotAfter   time.Time
+	commonName   string
+	organization string
+	notAfter     time.Time
 }
 
 type ConfigOption func(*config)
@@ -26,16 +27,23 @@ func CommonName(commonName string) ConfigOption {
 	}
 }
 
+func Organization(organization string) ConfigOption {
+	return func(r *config) {
+		r.organization = organization
+	}
+}
+
 func NotAfter(t time.Time) ConfigOption {
 	return func(r *config) {
-		r.NotAfter = t
+		r.notAfter = t
 	}
 }
 
 func TLSConfig(opts ...ConfigOption) (*tls.Config, error) {
 	r := &config{
-		commonName: "localhost",
-		NotAfter:   time.Now().AddDate(10, 0, 0),
+		commonName:   "localhost",
+		organization: "self-signed",
+		notAfter:     time.Now().AddDate(10, 0, 0),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -47,15 +55,25 @@ func TLSConfig(opts ...ConfigOption) (*tls.Config, error) {
 		return nil, fmt.Errorf("failed to generate private key: %v", err)
 	}
 
+	// Generate a random serial number
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a self-signed certificate
 	template := x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: r.commonName},
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   r.commonName,
+			Organization: []string{r.organization},
+		},
 		NotBefore:             time.Now(),
-		NotAfter:              r.NotAfter,
+		NotAfter:              r.notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+		DNSNames:              []string{r.commonName},
 	}
 	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
 	if err != nil {
@@ -87,7 +105,6 @@ func TLSConfig(opts ...ConfigOption) (*tls.Config, error) {
 	}
 
 	return &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: true,
+		Certificates: []tls.Certificate{cert},
 	}, nil
 }
