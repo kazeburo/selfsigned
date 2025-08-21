@@ -56,7 +56,8 @@ func TLSConfig(opts ...ConfigOption) (*tls.Config, error) {
 	}
 
 	// Generate a random serial number
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	// Generate a random serial number (64 bits, as is common practice)
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 64))
 	if err != nil {
 		return nil, err
 	}
