@@ -70,6 +70,8 @@ func TestTLSConfig_HTTPSServer(t *testing.T) {
 	resp, err := client.Get(baseURL + "/healthz")
 	assert.NoError(t, err, "unexpected error")
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected status OK")
+	assert.NotNil(t, resp.TLS, "expected resp.TLS to be non-nil")
+	assert.Greater(t, len(resp.TLS.PeerCertificates), 0, "expected at least one peer certificate")
 	err = resp.TLS.PeerCertificates[0].VerifyHostname("example.com")
 	assert.NoError(t, err, "unexpected error")
 }
